@@ -15,7 +15,6 @@ from Crypto.Util.Padding import pad
 from flask import Flask, request, jsonify, render_template_string
 
 import MajoRLoGinrEq_pb2
-import MajoRLoGinrEs_pb2
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -177,45 +176,86 @@ def major_login_protobuf(access_token, open_id):
         conn.close()
 
         if response.status in [200, 201]:
-            return raw.hex()
+            return raw
         return None
     except Exception:
         return None
 
 
-def decrypt_major_response(hex_data):
+def parse_major_response(raw_bytes):
+    """Try JSON first; fall back to hex/protobuf."""
+    if raw_bytes is None:
+        return None
+
     try:
-        proto = MajoRLoGinrEs_pb2.MajorLoginRes()
-        proto.ParseFromString(bytes.fromhex(hex_data))
-        return proto
+        text = raw_bytes.decode('utf-8', errors='ignore').strip()
+        if text.startswith('{') and text.endswith('}'):
+            return json.loads(text)
     except Exception:
-        return None
+        pass
+
+    try:
+        cleaned = ''.join(c for c in raw_bytes.decode('utf-8', errors='ignore') if c.isprintable() or c in '\n\r\t')
+        cleaned = cleaned.strip()
+        if cleaned.startswith('{') and cleaned.endswith('}'):
+            return json.loads(cleaned)
+    except Exception:
+        pass
+
+    try:
+        marker = raw_bytes.find(b'{')
+        if marker != -1:
+            end = raw_bytes.rfind(b'}')
+            if end > marker:
+                return json.loads(raw_bytes[marker:end+1].decode('utf-8', errors='ignore'))
+    except Exception:
+        pass
+
+    return None
 
 
-def build_result(uid, open_id, access_token, platform_type=8, region_hint=None):
-    response_hex = major_login_protobuf(access_token, open_id)
-    if not response_hex:
+def build_result(uid, open_id, access_token):
+    raw = major_login_protobuf(access_token, open_id)
+    if raw is None:
         return {"success": False, "message": "MajorLogin failed. Account may be banned."}
 
-    login_data = decrypt_major_response(response_hex)
-    if not login_data:
-        return {"success": False, "message": "Failed to decrypt MajorLogin response."}
+    data = parse_major_response(raw)
+    if not data:
+        return {"success": False, "message": "Failed to parse MajorLogin response."}
 
-    token = login_data.token
+    token = data.get("token")
     if not token:
         return {"success": False, "message": "No JWT token received."}
 
     decoded = decode_jwt(token) or {}
     payload = decoded.get("payload", {})
-    region = getattr(login_data, "region", None) or payload.get("noti_region") or region_hint or "IND"
+    region = (
+        data.get("notiRegion")
+        or data.get("lockRegion")
+        or payload.get("noti_region")
+        or "IND"
+    )
 
     return {
         "success": True,
-        "account_uid": str(login_data.account_uid),
+        "account_uid": str(data.get("accountId")),
         "Uid": str(uid),
         "jwt_decoded": decoded,
-        "platform_type_used": platform_type,
+        "platform_type_used": 8,
         "region": region,
+        "lock_region": data.get("lockRegion"),
+        "noti_region": data.get("notiRegion"),
+        "ip_region": data.get("ipRegion"),
+        "agora_environment": data.get("agoraEnvironment"),
+        "ttl": data.get("ttl"),
+        "server_url": data.get("serverUrl"),
+        "ip_city": data.get("ipCity"),
+        "kts": data.get("kts"),
+        "ak": data.get("ak"),
+        "aiv": data.get("aiv"),
+        "ff_anti_url": data.get("ffAntiUrl"),
+        "ff_anti_config": data.get("ffAntiConfigDesc"),
+        "connection_seed": data.get("connectionSeed"),
         "timestamp": int(datetime.now().timestamp()),
         "token": token,
         "token_access": access_token,
@@ -257,205 +297,127 @@ HTML_PAGE = '''<!DOCTYPE html>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
-  --bg:#07070b;
-  --panel:#0e0e14;
-  --panel-2:#14141c;
-  --border:#1e1e2a;
-  --text:#e6e6ef;
-  --muted:#6b6b80;
-  --accent:#7c5cff;
-  --accent-2:#ff3d81;
-  --ok:#22d67a;
-  --err:#ff4d6d;
+  --bg:#07070b;--panel:#0e0e14;--panel-2:#14141c;
+  --border:#1e1e2a;--text:#e6e6ef;--muted:#6b6b80;
+  --accent:#7c5cff;--accent-2:#ff3d81;--ok:#22d67a;--err:#ff4d6d;
 }
 html,body{height:100%}
 body{
-  background:var(--bg);
-  color:var(--text);
+  background:var(--bg);color:var(--text);
   font-family:'Space Grotesk',sans-serif;
-  min-height:100vh;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  padding:24px 16px;
-  position:relative;
-  overflow-x:hidden;
+  min-height:100vh;display:flex;align-items:center;justify-content:center;
+  padding:24px 16px;position:relative;overflow-x:hidden;
 }
 body::before{
-  content:"";
-  position:fixed;inset:0;
+  content:"";position:fixed;inset:0;
   background:
     radial-gradient(900px 500px at 15% -10%, rgba(124,92,255,0.18), transparent 60%),
-    radial-gradient(800px 500px at 90% 110%, rgba(255,61,129,0.14), transparent 60%),
-    linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.3) 100%);
-  pointer-events:none;
-  z-index:0;
+    radial-gradient(800px 500px at 90% 110%, rgba(255,61,129,0.14), transparent 60%);
+  pointer-events:none;z-index:0;
 }
 body::after{
-  content:"";
-  position:fixed;inset:0;
+  content:"";position:fixed;inset:0;
   background-image:
     linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
   background-size:32px 32px;
   mask-image:radial-gradient(ellipse at center, black 40%, transparent 80%);
-  pointer-events:none;
-  z-index:0;
+  pointer-events:none;z-index:0;
 }
 .wrap{
-  position:relative;z-index:1;
-  width:100%;max-width:640px;
+  position:relative;z-index:1;width:100%;max-width:640px;
   background:linear-gradient(180deg, rgba(20,20,28,0.9), rgba(14,14,20,0.95));
-  border:1px solid var(--border);
-  border-radius:22px;
-  padding:32px 28px;
+  border:1px solid var(--border);border-radius:22px;padding:32px 28px;
   backdrop-filter:blur(20px);
   box-shadow:0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.03);
 }
 .brand{display:flex;align-items:center;gap:12px;margin-bottom:6px}
-.dot{
-  width:10px;height:10px;border-radius:50%;
+.dot{width:10px;height:10px;border-radius:50%;
   background:linear-gradient(135deg,var(--accent),var(--accent-2));
-  box-shadow:0 0 16px rgba(124,92,255,0.7);
-}
-.brand h1{
-  font-size:20px;font-weight:700;letter-spacing:0.5px;
-  background:linear-gradient(90deg,#fff 0%, #b9a8ff 60%, #ff8fb8 100%);
-  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
-}
-.brand small{
-  color:var(--muted);font-size:11px;font-weight:400;
+  box-shadow:0 0 16px rgba(124,92,255,0.7);}
+.brand h1{font-size:20px;font-weight:700;letter-spacing:0.5px;
+  background:linear-gradient(90deg,#fff 0%,#b9a8ff 60%,#ff8fb8 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.brand small{color:var(--muted);font-size:11px;font-weight:400;
   margin-left:auto;letter-spacing:1.5px;text-transform:uppercase;
-  font-family:'JetBrains Mono',monospace;
-}
-.tabs{
-  display:grid;grid-template-columns:1fr 1fr;gap:6px;
+  font-family:'JetBrains Mono',monospace;}
+.tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;
   background:var(--panel-2);padding:5px;border-radius:12px;
-  border:1px solid var(--border);margin:22px 0 20px;
-}
-.tab{
-  padding:11px 14px;text-align:center;border-radius:9px;
+  border:1px solid var(--border);margin:22px 0 20px;}
+.tab{padding:11px 14px;text-align:center;border-radius:9px;
   font-size:13px;font-weight:500;color:var(--muted);
-  cursor:pointer;transition:all 0.25s ease;user-select:none;
-  letter-spacing:0.3px;
-}
+  cursor:pointer;transition:all 0.25s ease;user-select:none;letter-spacing:0.3px;}
 .tab:hover{color:#cfcfdd}
-.tab.active{
-  background:linear-gradient(135deg, rgba(124,92,255,0.9), rgba(255,61,129,0.85));
-  color:#fff;
-  box-shadow:0 6px 20px rgba(124,92,255,0.35);
-}
+.tab.active{background:linear-gradient(135deg,rgba(124,92,255,0.9),rgba(255,61,129,0.85));
+  color:#fff;box-shadow:0 6px 20px rgba(124,92,255,0.35);}
 .field{margin-bottom:14px}
-.field label{
-  display:block;font-size:11px;font-weight:500;letter-spacing:1.6px;
+.field label{display:block;font-size:11px;font-weight:500;letter-spacing:1.6px;
   text-transform:uppercase;color:var(--muted);margin-bottom:7px;
-  font-family:'JetBrains Mono',monospace;
-}
+  font-family:'JetBrains Mono',monospace;}
 .field input,.field textarea{
-  width:100%;padding:14px 15px;
-  background:var(--panel-2);
-  border:1px solid var(--border);
-  border-radius:11px;color:var(--text);
-  font-family:'JetBrains Mono',monospace;
-  font-size:13px;outline:none;transition:all 0.25s ease;
-  resize:vertical;
-}
+  width:100%;padding:14px 15px;background:var(--panel-2);
+  border:1px solid var(--border);border-radius:11px;color:var(--text);
+  font-family:'JetBrains Mono',monospace;font-size:13px;outline:none;
+  transition:all 0.25s ease;resize:vertical;}
 .field input::placeholder,.field textarea::placeholder{color:#3a3a4d}
 .field input:focus,.field textarea:focus{
   border-color:rgba(124,92,255,0.6);
-  box-shadow:0 0 0 3px rgba(124,92,255,0.12);
-  background:#15151f;
-}
-.btn{
-  width:100%;padding:15px;margin-top:6px;
-  border:none;border-radius:11px;
-  font-family:'Space Grotesk',sans-serif;
-  font-size:13px;font-weight:600;letter-spacing:1.8px;
-  text-transform:uppercase;cursor:pointer;
-  background:linear-gradient(135deg,#7c5cff,#ff3d81);
-  color:#fff;position:relative;overflow:hidden;
-  transition:transform 0.2s ease, box-shadow 0.25s ease;
-}
-.btn:hover:not(:disabled){
-  transform:translateY(-1px);
-  box-shadow:0 14px 34px rgba(124,92,255,0.4);
-}
+  box-shadow:0 0 0 3px rgba(124,92,255,0.12);background:#15151f;}
+.btn{width:100%;padding:15px;margin-top:6px;border:none;border-radius:11px;
+  font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:600;
+  letter-spacing:1.8px;text-transform:uppercase;cursor:pointer;
+  background:linear-gradient(135deg,#7c5cff,#ff3d81);color:#fff;
+  position:relative;overflow:hidden;transition:transform 0.2s ease, box-shadow 0.25s ease;}
+.btn:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 14px 34px rgba(124,92,255,0.4);}
 .btn:active:not(:disabled){transform:translateY(0)}
 .btn:disabled{opacity:0.5;cursor:not-allowed}
-.btn .sp{
-  display:inline-block;width:12px;height:12px;
-  border:2px solid rgba(255,255,255,0.3);
-  border-top-color:#fff;border-radius:50%;
-  animation:spin 0.7s linear infinite;
-  margin-right:8px;vertical-align:-2px;
-}
+.btn .sp{display:inline-block;width:12px;height:12px;
+  border:2px solid rgba(255,255,255,0.3);border-top-color:#fff;
+  border-radius:50%;animation:spin 0.7s linear infinite;
+  margin-right:8px;vertical-align:-2px;}
 @keyframes spin{to{transform:rotate(360deg)}}
-.out{
-  margin-top:20px;border-radius:14px;
-  background:var(--panel-2);
-  border:1px solid var(--border);
-  overflow:hidden;display:none;
-}
+.out{margin-top:20px;border-radius:14px;background:var(--panel-2);
+  border:1px solid var(--border);overflow:hidden;display:none;}
 .out.show{display:block;animation:fade 0.35s ease}
 @keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.out-head{
-  padding:13px 16px;display:flex;align-items:center;gap:9px;
-  border-bottom:1px solid var(--border);
-  font-size:13px;font-weight:500;
-}
-.out-head .ic{
-  width:8px;height:8px;border-radius:50%;background:var(--ok);
-  box-shadow:0 0 10px var(--ok);
-}
+.out-head{padding:13px 16px;display:flex;align-items:center;gap:9px;
+  border-bottom:1px solid var(--border);font-size:13px;font-weight:500;}
+.out-head .ic{width:8px;height:8px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 10px var(--ok);}
 .out-head .ic.err{background:var(--err);box-shadow:0 0 10px var(--err)}
 .out-head .msg{color:#cfcfdd}
 .out-body{padding:6px 16px 14px}
-.row{
-  display:flex;justify-content:space-between;gap:12px;
+.row{display:flex;justify-content:space-between;gap:12px;
   padding:8px 0;border-bottom:1px dashed rgba(255,255,255,0.05);
-  font-size:12px;align-items:center;
-}
+  font-size:12px;align-items:center;}
 .row:last-child{border-bottom:none}
-.row .k{
-  color:var(--muted);font-family:'JetBrains Mono',monospace;
-  font-size:11px;letter-spacing:0.5px;flex-shrink:0;
-}
-.row .v{
-  color:#d8d8e6;text-align:right;word-break:break-all;
-  font-family:'JetBrains Mono',monospace;font-size:11px;
-}
+.row .k{color:var(--muted);font-family:'JetBrains Mono',monospace;
+  font-size:11px;letter-spacing:0.5px;flex-shrink:0;}
+.row .v{color:#d8d8e6;text-align:right;word-break:break-all;
+  font-family:'JetBrains Mono',monospace;font-size:11px;}
 .row .v.tok{color:#c4b1ff}
 .row .v.hl{color:#ff8fb8}
 .actions{display:flex;gap:8px;padding:12px 16px 14px;border-top:1px solid var(--border)}
-.actions button{
-  flex:1;padding:10px;border-radius:9px;
-  background:rgba(255,255,255,0.04);
-  border:1px solid var(--border);
+.actions button{flex:1;padding:10px;border-radius:9px;
+  background:rgba(255,255,255,0.04);border:1px solid var(--border);
   color:#c7c7d6;font-family:'Space Grotesk',sans-serif;
   font-size:11px;font-weight:500;letter-spacing:1.2px;
-  text-transform:uppercase;cursor:pointer;transition:all 0.2s ease;
-}
-.actions button:hover{background:rgba(124,92,255,0.14);border-color:rgba(124,92,255,0.4);color:#fff}
-.actions button.done{color:var(--ok);border-color:rgba(34,214,122,0.4);background:rgba(34,214,122,0.08)}
-.raw{
-  padding:0 16px 14px;
-}
-.raw summary{
-  cursor:pointer;color:var(--muted);font-size:11px;
+  text-transform:uppercase;cursor:pointer;transition:all 0.2s ease;}
+.actions button:hover{background:rgba(124,92,255,0.14);
+  border-color:rgba(124,92,255,0.4);color:#fff}
+.actions button.done{color:var(--ok);border-color:rgba(34,214,122,0.4);
+  background:rgba(34,214,122,0.08)}
+.raw{padding:0 16px 14px;}
+.raw summary{cursor:pointer;color:var(--muted);font-size:11px;
   letter-spacing:1px;font-family:'JetBrains Mono',monospace;
-  text-transform:uppercase;user-select:none;
-}
-.raw pre{
-  margin-top:8px;background:#0a0a10;border:1px solid var(--border);
-  border-radius:9px;padding:12px;max-height:220px;overflow:auto;
+  text-transform:uppercase;user-select:none;}
+.raw pre{margin-top:8px;background:#0a0a10;border:1px solid var(--border);
+  border-radius:9px;padding:12px;max-height:260px;overflow:auto;
   font-size:11px;line-height:1.55;color:#b9b9cc;
-  font-family:'JetBrains Mono',monospace;
-}
-.footer{
-  text-align:center;margin-top:20px;
-  color:#2e2e3e;font-size:10px;letter-spacing:2.5px;
-  font-family:'JetBrains Mono',monospace;text-transform:uppercase;
-}
+  font-family:'JetBrains Mono',monospace;}
+.footer{text-align:center;margin-top:20px;color:#2e2e3e;
+  font-size:10px;letter-spacing:2.5px;font-family:'JetBrains Mono',monospace;
+  text-transform:uppercase;}
 .footer b{color:#6b6b80;font-weight:500}
 @media (max-width:520px){
   .wrap{padding:26px 18px;border-radius:18px}
@@ -471,7 +433,7 @@ body::after{
   <div class="brand">
     <span class="dot"></span>
     <h1>Obscura JWT</h1>
-    <small>v2.0</small>
+    <small>v2.1</small>
   </div>
 
   <div class="tabs">
@@ -535,10 +497,6 @@ document.querySelectorAll(".tab").forEach(t=>{
 async function run(){
   const go = document.getElementById("go");
   const out = document.getElementById("out");
-  const ic = document.getElementById("ic");
-  const msg = document.getElementById("msg");
-  const body = document.getElementById("body");
-  const raw = document.getElementById("raw");
 
   let payload = {};
   if(mode==="uid"){
@@ -597,13 +555,22 @@ function show(ok, msgText, d){
     ["UID", d.Uid],
     ["Nickname", pl.nickname],
     ["Region", d.region],
-    ["Lock Region", pl.lock_region],
+    ["Lock Region", d.lock_region || pl.lock_region],
+    ["Noti Region", d.noti_region || pl.noti_region],
+    ["IP Region", d.ip_region],
     ["Country", pl.country_code],
     ["Platform", d.platform_type_used],
     ["Emulator", String(pl.is_emulator)],
     ["Release", pl.release_version],
+    ["TTL", d.ttl],
     ["Expires", pl.exp],
-    ["Client URL", d.url, "tok"],
+    ["Server URL", d.server_url, "tok"],
+    ["IP City", d.ip_city],
+    ["Anti URL", d.ff_anti_url, "tok"],
+    ["KTS", d.kts],
+    ["AK", d.ak, "tok"],
+    ["AIV", d.aiv, "tok"],
+    ["Connection Seed", d.connection_seed, "tok"],
     ["Token", d.token, "tok"],
   ];
 
