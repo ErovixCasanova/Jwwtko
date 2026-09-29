@@ -1,16 +1,10 @@
-# Developed NIROB | Premium JWT Generator API & Web
-# Fixed By NIROB
-# tg : MT_0G
-# Vercel-compatible Flask version
-
 import os
-import sys
 import json
-import time
 import random
 import gzip
 import ssl
 import http.client
+import base64
 from io import BytesIO
 from datetime import datetime
 
@@ -20,27 +14,34 @@ from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
 from flask import Flask, request, jsonify, render_template_string
 
-# Protobuf modules (must be present in the same directory)
 import MajoRLoGinrEq_pb2
 import MajoRLoGinrEs_pb2
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# ==================== CONSTANTS ====================
 AES_KEY = b'Yg&tc%DEuh6%Zc^8'
 AES_IV = b'6oyZDr22E3ychjM%'
 PORT = int(os.environ.get("PORT", 8080))
 
-# Vercel looks for a top-level variable named `app` (Flask instance)
 app = Flask(__name__)
 
 
-# ==================== HELPER FUNCTIONS ====================
-
 def encrypt_proto(data: bytes) -> bytes:
     cipher = AES.new(AES_KEY, AES.MODE_CBC, AES_IV)
-    padded = pad(data, AES.block_size)
-    return cipher.encrypt(padded)
+    return cipher.encrypt(pad(data, AES.block_size))
+
+
+def decode_jwt(token: str):
+    try:
+        parts = token.split('.')
+        if len(parts) != 3:
+            return None
+        def b64(s):
+            s += '=' * (-len(s) % 4)
+            return json.loads(base64.urlsafe_b64decode(s).decode('utf-8'))
+        return {"header": b64(parts[0]), "payload": b64(parts[1])}
+    except Exception:
+        return None
 
 
 def get_access_token(uid, password):
@@ -70,70 +71,89 @@ def get_access_token(uid, password):
         return None, None
 
 
+def inspect_access_token(access_token: str):
+    url = f"https://100067.connect.garena.com/oauth/token/inspect?token={access_token}"
+    headers = {
+        "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 7.1.2; ASUS_Z01QD Build/QKQ1.190825.002)",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "close",
+    }
+    try:
+        r = requests.get(url, headers=headers, timeout=10, verify=False)
+        if r.status_code == 200:
+            j = r.json()
+            uid = str(j.get("uid", ""))
+            open_id = j.get("open_id", "")
+            if uid and open_id:
+                return uid, open_id
+        return None, None
+    except Exception:
+        return None, None
+
+
 def major_login_protobuf(access_token, open_id):
     try:
-        major_login = MajoRLoGinrEq_pb2.MajorLogin()
-        major_login.event_time = str(datetime.now())[:-7]
-        major_login.game_name = "free fire"
-        major_login.platform_id = 2
-        major_login.client_version = "1.126.2"
-        major_login.client_version_code = "2024010012"
-        major_login.system_software = "Android OS 11 / API-30 (RQ3A.210805.001)"
-        major_login.system_hardware = "Handheld"
-        major_login.device_type = "Handheld"
-        major_login.telecom_operator = "Verizon"
-        major_login.network_operator_a = "Verizon"
-        major_login.network_type = "WIFI"
-        major_login.network_type_a = "WIFI"
-        major_login.screen_width = 1080
-        major_login.screen_height = 2400
-        major_login.screen_dpi = "440"
-        major_login.processor_details = "ARMv8"
-        major_login.cpu_type = 2
-        major_login.cpu_architecture = "64"
-        major_login.memory = 6144
-        major_login.gpu_renderer = "Adreno (TM) 650"
-        major_login.gpu_version = "OpenGL ES 3.2 V@1.50"
-        major_login.graphics_api = "OpenGLES3"
-        major_login.unique_device_id = f"Google|34a7dcdf-a7d5-4cb6-8d7e-3b0e448a0c{random.randint(10,99)}"
-        major_login.client_ip = ""
-        major_login.language = "en"
-        major_login.open_id = open_id
-        major_login.open_id_type = "4"
-        major_login.login_open_id_type = 4
-        major_login.access_token = access_token
-        major_login.login_by = 3
-        major_login.platform_sdk_id = 2
-        major_login.origin_platform_type = "4"
-        major_login.primary_platform_type = "4"
+        m = MajoRLoGinrEq_pb2.MajorLogin()
+        m.event_time = str(datetime.now())[:-7]
+        m.game_name = "free fire"
+        m.platform_id = 2
+        m.client_version = "1.126.2"
+        m.client_version_code = "2024010012"
+        m.system_software = "Android OS 11 / API-30 (RQ3A.210805.001)"
+        m.system_hardware = "Handheld"
+        m.device_type = "Handheld"
+        m.telecom_operator = "Verizon"
+        m.network_operator_a = "Verizon"
+        m.network_type = "WIFI"
+        m.network_type_a = "WIFI"
+        m.screen_width = 1080
+        m.screen_height = 2400
+        m.screen_dpi = "440"
+        m.processor_details = "ARMv8"
+        m.cpu_type = 2
+        m.cpu_architecture = "64"
+        m.memory = 6144
+        m.gpu_renderer = "Adreno (TM) 650"
+        m.gpu_version = "OpenGL ES 3.2 V@1.50"
+        m.graphics_api = "OpenGLES3"
+        m.unique_device_id = f"Google|34a7dcdf-a7d5-4cb6-8d7e-3b0e448a0c{random.randint(10,99)}"
+        m.client_ip = ""
+        m.language = "en"
+        m.open_id = open_id
+        m.open_id_type = "4"
+        m.login_open_id_type = 4
+        m.access_token = access_token
+        m.login_by = 3
+        m.platform_sdk_id = 2
+        m.origin_platform_type = "4"
+        m.primary_platform_type = "4"
 
-        memory_available = major_login.memory_available
-        memory_available.version = 55
-        memory_available.hidden_value = 81
+        mem = m.memory_available
+        mem.version = 55
+        mem.hidden_value = 81
 
-        major_login.external_storage_total = 128512
-        major_login.external_storage_available = random.randint(38000, 52000)
-        major_login.internal_storage_total = 110731
-        major_login.internal_storage_available = random.randint(18000, 32000)
-        major_login.game_disk_storage_total = 26628
-        major_login.game_disk_storage_available = random.randint(18000, 25000)
-        major_login.external_sdcard_total_storage = 119234
-        major_login.external_sdcard_avail_storage = random.randint(25000, 60000)
-        major_login.library_path = f"/data/app/~~{random.randint(100,999)}/base.apk"
-        major_login.library_token = "hash|base.apk"
-        major_login.client_using_version = "7428b253defc164018c604a1ebbfebdf"
-        major_login.supported_astc_bitset = 16383
-        major_login.analytics_detail = b"FwQVTgUPX1UaUllDDwcWCRBpWAUOUgsvA1snWlBaO1kFYg=="
-        major_login.loading_time = random.randint(9000, 18000)
-        major_login.release_channel = "android"
-        major_login.channel_type = 3
-        major_login.reg_avatar = 1
-        major_login.if_push = 1
-        major_login.is_vpn = 0
-        major_login.android_engine_init_flag = 110009
+        m.external_storage_total = 128512
+        m.external_storage_available = random.randint(38000, 52000)
+        m.internal_storage_total = 110731
+        m.internal_storage_available = random.randint(18000, 32000)
+        m.game_disk_storage_total = 26628
+        m.game_disk_storage_available = random.randint(18000, 25000)
+        m.external_sdcard_total_storage = 119234
+        m.external_sdcard_avail_storage = random.randint(25000, 60000)
+        m.library_path = f"/data/app/~~{random.randint(100,999)}/base.apk"
+        m.library_token = "hash|base.apk"
+        m.client_using_version = "7428b253defc164018c604a1ebbfebdf"
+        m.supported_astc_bitset = 16383
+        m.analytics_detail = b"FwQVTgUPX1UaUllDDwcWCRBpWAUOUgsvA1snWlBaO1kFYg=="
+        m.loading_time = random.randint(9000, 18000)
+        m.release_channel = "android"
+        m.channel_type = 3
+        m.reg_avatar = 1
+        m.if_push = 1
+        m.is_vpn = 0
+        m.android_engine_init_flag = 110009
 
-        serialized = major_login.SerializeToString()
-        encrypted = encrypt_proto(serialized)
+        encrypted = encrypt_proto(m.SerializeToString())
 
         context = ssl._create_unverified_context()
         conn = http.client.HTTPSConnection("loginbp.ggpolarbear.com", context=context, timeout=15)
@@ -149,15 +169,15 @@ def major_login_protobuf(access_token, open_id):
         }
         conn.request("POST", "/MajorLogin", body=encrypted, headers=headers)
         response = conn.getresponse()
-        raw_data = response.read()
+        raw = response.read()
 
         if response.getheader('Content-Encoding') == 'gzip':
-            with gzip.GzipFile(fileobj=BytesIO(raw_data)) as f:
-                raw_data = f.read()
+            with gzip.GzipFile(fileobj=BytesIO(raw)) as f:
+                raw = f.read()
         conn.close()
 
         if response.status in [200, 201]:
-            return raw_data.hex()
+            return raw.hex()
         return None
     except Exception:
         return None
@@ -172,520 +192,482 @@ def decrypt_major_response(hex_data):
         return None
 
 
-def generate_jwt(uid, password):
-    """Main function to generate JWT token from UID and Password"""
-    result = {
-        "success": False,
-        "uid": uid,
-        "jwt_token": None,
-        "account_uid": None,
-        "region": None,
-        "message": "",
-        "timestamp": datetime.now().isoformat()
-    }
-
-    if not uid or not password:
-        result["message"] = "UID and Password are required."
-        return result
-
-    if not uid.isdigit() or len(uid) < 8:
-        result["message"] = "Invalid UID format."
-        return result
-
-    access_token, open_id = get_access_token(uid, password)
-    if not access_token or not open_id:
-        result["message"] = "Invalid UID or Password."
-        return result
-
+def build_result(uid, open_id, access_token, platform_type=8, region_hint=None):
     response_hex = major_login_protobuf(access_token, open_id)
     if not response_hex:
-        result["message"] = "Account may be banned or invalid."
-        return result
+        return {"success": False, "message": "MajorLogin failed. Account may be banned."}
 
     login_data = decrypt_major_response(response_hex)
     if not login_data:
-        result["message"] = "Failed to decrypt response."
-        return result
+        return {"success": False, "message": "Failed to decrypt MajorLogin response."}
 
-    jwt_token = login_data.token
-    if not jwt_token:
-        result["message"] = "No JWT token received."
-        return result
+    token = login_data.token
+    if not token:
+        return {"success": False, "message": "No JWT token received."}
 
-    result["success"] = True
-    result["jwt_token"] = jwt_token
-    result["account_uid"] = str(login_data.account_uid)
-    result["region"] = getattr(login_data, 'region', 'IND')
-    result["message"] = "JWT generated successfully!"
+    decoded = decode_jwt(token) or {}
+    payload = decoded.get("payload", {})
+    region = getattr(login_data, "region", None) or payload.get("noti_region") or region_hint or "IND"
 
-    return result
+    return {
+        "success": True,
+        "account_uid": str(login_data.account_uid),
+        "Uid": str(uid),
+        "jwt_decoded": decoded,
+        "platform_type_used": platform_type,
+        "region": region,
+        "timestamp": int(datetime.now().timestamp()),
+        "token": token,
+        "token_access": access_token,
+        "url": f"https://client.{str(region).lower()}.freefiremobile.com",
+    }
 
 
-# ==================== PREMIUM HTML PAGE ====================
+def gen_from_uid_pass(uid, password):
+    if not uid or not password:
+        return {"success": False, "message": "UID and Password are required."}
+    if not uid.isdigit() or len(uid) < 8:
+        return {"success": False, "message": "Invalid UID format."}
+
+    access_token, open_id = get_access_token(uid, password)
+    if not access_token or not open_id:
+        return {"success": False, "message": "Invalid UID or Password."}
+
+    return build_result(uid, open_id, access_token)
+
+
+def gen_from_access_token(access_token):
+    if not access_token or len(access_token) < 20:
+        return {"success": False, "message": "Invalid access token."}
+
+    uid, open_id = inspect_access_token(access_token)
+    if not uid or not open_id:
+        return {"success": False, "message": "Access token is invalid or expired."}
+
+    return build_result(uid, open_id, access_token)
+
+
 HTML_PAGE = '''<!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Obscura JWT GENERATOR</title>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            background: #0a0a0f;
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-family: 'Rajdhani', sans-serif;
-            padding: 20px;
-            position: relative;
-            overflow-x: hidden;
-        }
-        body::before {
-            content: '';
-            position: fixed;
-            top: -50%;
-            left: -50%;
-            right: -50%;
-            bottom: -50%;
-            background: 
-                radial-gradient(ellipse at 20% 50%, rgba(255,0,100,0.08), transparent 50%),
-                radial-gradient(ellipse at 80% 50%, rgba(100,0,255,0.08), transparent 50%),
-                radial-gradient(ellipse at 50% 100%, rgba(0,200,255,0.05), transparent 50%);
-            animation: bgFloat 20s ease-in-out infinite alternate;
-            z-index: 0;
-            pointer-events: none;
-        }
-        @keyframes bgFloat {
-            0% { transform: translate(0, 0) rotate(0deg); }
-            100% { transform: translate(2%, -2%) rotate(3deg); }
-        }
-        .container {
-            background: rgba(10, 10, 20, 0.92);
-            border-radius: 28px;
-            padding: 45px 40px;
-            max-width: 580px;
-            width: 100%;
-            border: 1px solid rgba(255,255,255,0.06);
-            box-shadow: 0 40px 100px rgba(0,0,0,0.8), 0 0 80px rgba(255,0,100,0.03);
-            position: relative;
-            z-index: 1;
-            backdrop-filter: blur(30px);
-        }
-        .container::before {
-            content: '';
-            position: absolute;
-            top: -1px; left: -1px; right: -1px; bottom: -1px;
-            border-radius: 29px;
-            background: linear-gradient(135deg, rgba(255,0,100,0.15), rgba(100,0,255,0.15), rgba(0,200,255,0.1));
-            z-index: -1;
-            opacity: 0.5;
-        }
-        .header { text-align: center; margin-bottom: 30px; }
-        .header .logo { display: inline-block; margin-bottom: 8px; }
-        .header .logo .icon { font-size: 32px; color: #ff0066; margin-right: 8px; }
-        .header h1 {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 28px;
-            font-weight: 900;
-            background: linear-gradient(135deg, #ff0066, #cc00ff, #6600ff);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: 3px;
-            display: inline-block;
-        }
-        .header .subtitle {
-            color: rgba(255,255,255,0.3);
-            font-size: 13px;
-            letter-spacing: 5px;
-            margin-top: 6px;
-            font-weight: 300;
-        }
-        .form-group { margin-bottom: 20px; }
-        .form-group label {
-            display: block;
-            color: rgba(255,255,255,0.5);
-            font-size: 12px;
-            font-weight: 600;
-            letter-spacing: 2px;
-            margin-bottom: 6px;
-            text-transform: uppercase;
-        }
-        .form-group .input-wrap {
-            position: relative;
-            background: rgba(255,255,255,0.03);
-            border-radius: 12px;
-            border: 1px solid rgba(255,255,255,0.06);
-            transition: all 0.3s ease;
-            overflow: hidden;
-        }
-        .form-group .input-wrap:focus-within {
-            border-color: rgba(255,0,100,0.3);
-            box-shadow: 0 0 30px rgba(255,0,100,0.04);
-            background: rgba(255,255,255,0.05);
-        }
-        .form-group .input-wrap .icon-left {
-            position: absolute;
-            left: 14px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: rgba(255,255,255,0.15);
-            font-size: 14px;
-            pointer-events: none;
-        }
-        .form-group input {
-            width: 100%;
-            padding: 15px 16px 15px 44px;
-            background: transparent;
-            border: none;
-            color: #e0e0e0;
-            font-size: 15px;
-            font-family: 'Rajdhani', sans-serif;
-            font-weight: 500;
-            letter-spacing: 0.5px;
-            outline: none;
-        }
-        .form-group input::placeholder { color: rgba(255,255,255,0.15); font-weight: 300; }
-        .form-group input:-webkit-autofill {
-            -webkit-box-shadow: 0 0 0 1000px rgba(10,10,20,0.95) inset !important;
-            -webkit-text-fill-color: #e0e0e0 !important;
-        }
-        .btn {
-            width: 100%;
-            padding: 16px;
-            border: none;
-            border-radius: 12px;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 14px;
-            font-weight: 700;
-            letter-spacing: 3px;
-            background: linear-gradient(135deg, #ff0066, #cc00ff);
-            color: #fff;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            position: relative;
-            overflow: hidden;
-        }
-        .btn:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(255,0,100,0.25); }
-        .btn:active { transform: scale(0.97); }
-        .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
-        .btn .btn-text { position: relative; z-index: 1; }
-        .result-box {
-            margin-top: 28px;
-            border-radius: 16px;
-            background: rgba(255,255,255,0.02);
-            border: 1px solid rgba(255,255,255,0.05);
-            padding: 20px;
-            display: none;
-            animation: fadeSlide 0.4s ease;
-        }
-        .result-box.show { display: block; }
-        @keyframes fadeSlide {
-            from { opacity: 0; transform: translateY(12px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        .result-box .result-header {
-            display: flex; align-items: center; gap: 10px;
-            margin-bottom: 14px; padding-bottom: 12px;
-            border-bottom: 1px solid rgba(255,255,255,0.04);
-        }
-        .result-box .result-header .status-icon { font-size: 20px; }
-        .result-box .result-header .status-text { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
-        .result-box .result-header .status-text.success { color: #00e676; }
-        .result-box .result-header .status-text.error { color: #ff1744; }
-        .result-box .info-row {
-            display: flex; justify-content: space-between;
-            padding: 8px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
-            font-size: 13px; align-items: center;
-        }
-        .result-box .info-row:last-child { border-bottom: none; }
-        .result-box .info-row .label { color: rgba(255,255,255,0.35); font-weight: 300; letter-spacing: 1px; font-size: 12px; }
-        .result-box .info-row .value {
-            color: #d0d0d0; font-weight: 500; text-align: right;
-            max-width: 60%; word-break: break-all; font-size: 13px;
-        }
-        .result-box .info-row .value.token-value {
-            font-family: 'Courier New', monospace;
-            font-size: 11px; color: #ff66aa;
-            max-width: 70%;
-            background: rgba(255,0,100,0.05);
-            padding: 4px 8px; border-radius: 6px;
-        }
-        .result-box .copy-section { margin-top: 14px; display: flex; gap: 8px; }
-        .result-box .copy-section .copy-btn {
-            flex: 1; padding: 9px;
-            border: 1px solid rgba(255,255,255,0.06);
-            border-radius: 8px;
-            background: rgba(255,255,255,0.02);
-            color: rgba(255,255,255,0.4);
-            font-family: 'Rajdhani', sans-serif;
-            font-size: 12px; font-weight: 600;
-            cursor: pointer; transition: all 0.3s ease;
-            letter-spacing: 1px; text-align: center;
-        }
-        .result-box .copy-section .copy-btn:hover {
-            background: rgba(255,255,255,0.06); color: #fff;
-            border-color: rgba(255,255,255,0.12);
-        }
-        .result-box .copy-section .copy-btn.copied {
-            border-color: #00e676; color: #00e676;
-            background: rgba(0,230,118,0.05);
-        }
-        .footer {
-            text-align: center; margin-top: 22px;
-            color: rgba(255,255,255,0.08); font-size: 11px;
-            letter-spacing: 3px; font-weight: 300;
-        }
-        .footer .brand {
-            background: linear-gradient(135deg, #ff0066, #cc00ff);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-weight: 700;
-        }
-        .loader {
-            display: none; width: 28px; height: 28px;
-            border: 2px solid rgba(255,255,255,0.05);
-            border-top-color: #ff0066;
-            border-radius: 50%;
-            animation: spin 0.7s linear infinite;
-            margin: 0 auto 4px;
-        }
-        .loader.show { display: block; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .api-badge {
-            text-align: center; margin-top: 14px; padding: 10px;
-            background: rgba(255,255,255,0.02);
-            border-radius: 10px;
-            border: 1px solid rgba(255,255,255,0.03);
-        }
-        .api-badge code {
-            color: rgba(255,255,255,0.2); font-size: 11px;
-            font-family: 'Courier New', monospace; letter-spacing: 0.5px;
-        }
-        .api-badge code .highlight { color: #ff66aa; }
-        @media (max-width: 500px) {
-            .container { padding: 28px 18px; }
-            .header h1 { font-size: 22px; letter-spacing: 2px; }
-            .form-group input { font-size: 14px; padding: 13px 14px 13px 40px; }
-            .btn { font-size: 13px; padding: 14px; }
-            .result-box .info-row { flex-direction: column; gap: 2px; align-items: flex-start; }
-            .result-box .info-row .value { max-width: 100%; text-align: left; }
-            .result-box .copy-section { flex-direction: column; }
-            .result-box .info-row .value.token-value { max-width: 100%; }
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Obscura JWT Generator</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#07070b;
+  --panel:#0e0e14;
+  --panel-2:#14141c;
+  --border:#1e1e2a;
+  --text:#e6e6ef;
+  --muted:#6b6b80;
+  --accent:#7c5cff;
+  --accent-2:#ff3d81;
+  --ok:#22d67a;
+  --err:#ff4d6d;
+}
+html,body{height:100%}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:'Space Grotesk',sans-serif;
+  min-height:100vh;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px 16px;
+  position:relative;
+  overflow-x:hidden;
+}
+body::before{
+  content:"";
+  position:fixed;inset:0;
+  background:
+    radial-gradient(900px 500px at 15% -10%, rgba(124,92,255,0.18), transparent 60%),
+    radial-gradient(800px 500px at 90% 110%, rgba(255,61,129,0.14), transparent 60%),
+    linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.3) 100%);
+  pointer-events:none;
+  z-index:0;
+}
+body::after{
+  content:"";
+  position:fixed;inset:0;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+  background-size:32px 32px;
+  mask-image:radial-gradient(ellipse at center, black 40%, transparent 80%);
+  pointer-events:none;
+  z-index:0;
+}
+.wrap{
+  position:relative;z-index:1;
+  width:100%;max-width:640px;
+  background:linear-gradient(180deg, rgba(20,20,28,0.9), rgba(14,14,20,0.95));
+  border:1px solid var(--border);
+  border-radius:22px;
+  padding:32px 28px;
+  backdrop-filter:blur(20px);
+  box-shadow:0 30px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.03);
+}
+.brand{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.dot{
+  width:10px;height:10px;border-radius:50%;
+  background:linear-gradient(135deg,var(--accent),var(--accent-2));
+  box-shadow:0 0 16px rgba(124,92,255,0.7);
+}
+.brand h1{
+  font-size:20px;font-weight:700;letter-spacing:0.5px;
+  background:linear-gradient(90deg,#fff 0%, #b9a8ff 60%, #ff8fb8 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.brand small{
+  color:var(--muted);font-size:11px;font-weight:400;
+  margin-left:auto;letter-spacing:1.5px;text-transform:uppercase;
+  font-family:'JetBrains Mono',monospace;
+}
+.tabs{
+  display:grid;grid-template-columns:1fr 1fr;gap:6px;
+  background:var(--panel-2);padding:5px;border-radius:12px;
+  border:1px solid var(--border);margin:22px 0 20px;
+}
+.tab{
+  padding:11px 14px;text-align:center;border-radius:9px;
+  font-size:13px;font-weight:500;color:var(--muted);
+  cursor:pointer;transition:all 0.25s ease;user-select:none;
+  letter-spacing:0.3px;
+}
+.tab:hover{color:#cfcfdd}
+.tab.active{
+  background:linear-gradient(135deg, rgba(124,92,255,0.9), rgba(255,61,129,0.85));
+  color:#fff;
+  box-shadow:0 6px 20px rgba(124,92,255,0.35);
+}
+.field{margin-bottom:14px}
+.field label{
+  display:block;font-size:11px;font-weight:500;letter-spacing:1.6px;
+  text-transform:uppercase;color:var(--muted);margin-bottom:7px;
+  font-family:'JetBrains Mono',monospace;
+}
+.field input,.field textarea{
+  width:100%;padding:14px 15px;
+  background:var(--panel-2);
+  border:1px solid var(--border);
+  border-radius:11px;color:var(--text);
+  font-family:'JetBrains Mono',monospace;
+  font-size:13px;outline:none;transition:all 0.25s ease;
+  resize:vertical;
+}
+.field input::placeholder,.field textarea::placeholder{color:#3a3a4d}
+.field input:focus,.field textarea:focus{
+  border-color:rgba(124,92,255,0.6);
+  box-shadow:0 0 0 3px rgba(124,92,255,0.12);
+  background:#15151f;
+}
+.btn{
+  width:100%;padding:15px;margin-top:6px;
+  border:none;border-radius:11px;
+  font-family:'Space Grotesk',sans-serif;
+  font-size:13px;font-weight:600;letter-spacing:1.8px;
+  text-transform:uppercase;cursor:pointer;
+  background:linear-gradient(135deg,#7c5cff,#ff3d81);
+  color:#fff;position:relative;overflow:hidden;
+  transition:transform 0.2s ease, box-shadow 0.25s ease;
+}
+.btn:hover:not(:disabled){
+  transform:translateY(-1px);
+  box-shadow:0 14px 34px rgba(124,92,255,0.4);
+}
+.btn:active:not(:disabled){transform:translateY(0)}
+.btn:disabled{opacity:0.5;cursor:not-allowed}
+.btn .sp{
+  display:inline-block;width:12px;height:12px;
+  border:2px solid rgba(255,255,255,0.3);
+  border-top-color:#fff;border-radius:50%;
+  animation:spin 0.7s linear infinite;
+  margin-right:8px;vertical-align:-2px;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+.out{
+  margin-top:20px;border-radius:14px;
+  background:var(--panel-2);
+  border:1px solid var(--border);
+  overflow:hidden;display:none;
+}
+.out.show{display:block;animation:fade 0.35s ease}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.out-head{
+  padding:13px 16px;display:flex;align-items:center;gap:9px;
+  border-bottom:1px solid var(--border);
+  font-size:13px;font-weight:500;
+}
+.out-head .ic{
+  width:8px;height:8px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 10px var(--ok);
+}
+.out-head .ic.err{background:var(--err);box-shadow:0 0 10px var(--err)}
+.out-head .msg{color:#cfcfdd}
+.out-body{padding:6px 16px 14px}
+.row{
+  display:flex;justify-content:space-between;gap:12px;
+  padding:8px 0;border-bottom:1px dashed rgba(255,255,255,0.05);
+  font-size:12px;align-items:center;
+}
+.row:last-child{border-bottom:none}
+.row .k{
+  color:var(--muted);font-family:'JetBrains Mono',monospace;
+  font-size:11px;letter-spacing:0.5px;flex-shrink:0;
+}
+.row .v{
+  color:#d8d8e6;text-align:right;word-break:break-all;
+  font-family:'JetBrains Mono',monospace;font-size:11px;
+}
+.row .v.tok{color:#c4b1ff}
+.row .v.hl{color:#ff8fb8}
+.actions{display:flex;gap:8px;padding:12px 16px 14px;border-top:1px solid var(--border)}
+.actions button{
+  flex:1;padding:10px;border-radius:9px;
+  background:rgba(255,255,255,0.04);
+  border:1px solid var(--border);
+  color:#c7c7d6;font-family:'Space Grotesk',sans-serif;
+  font-size:11px;font-weight:500;letter-spacing:1.2px;
+  text-transform:uppercase;cursor:pointer;transition:all 0.2s ease;
+}
+.actions button:hover{background:rgba(124,92,255,0.14);border-color:rgba(124,92,255,0.4);color:#fff}
+.actions button.done{color:var(--ok);border-color:rgba(34,214,122,0.4);background:rgba(34,214,122,0.08)}
+.raw{
+  padding:0 16px 14px;
+}
+.raw summary{
+  cursor:pointer;color:var(--muted);font-size:11px;
+  letter-spacing:1px;font-family:'JetBrains Mono',monospace;
+  text-transform:uppercase;user-select:none;
+}
+.raw pre{
+  margin-top:8px;background:#0a0a10;border:1px solid var(--border);
+  border-radius:9px;padding:12px;max-height:220px;overflow:auto;
+  font-size:11px;line-height:1.55;color:#b9b9cc;
+  font-family:'JetBrains Mono',monospace;
+}
+.footer{
+  text-align:center;margin-top:20px;
+  color:#2e2e3e;font-size:10px;letter-spacing:2.5px;
+  font-family:'JetBrains Mono',monospace;text-transform:uppercase;
+}
+.footer b{color:#6b6b80;font-weight:500}
+@media (max-width:520px){
+  .wrap{padding:26px 18px;border-radius:18px}
+  .brand h1{font-size:17px}
+  .tabs{grid-template-columns:1fr}
+  .row{flex-direction:column;align-items:flex-start;gap:3px}
+  .row .v{text-align:left;max-width:100%}
+}
+</style>
 </head>
 <body>
-<div class="container">
-    <div class="header">
-        <div class="logo">
-            <span class="icon"><i class="fas fa-crown"></i></span>
-            <h1>NIROB JWT</h1>
-        </div>
-        <div class="subtitle">PREMIUM TOKEN GENERATOR</div>
+<div class="wrap">
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>Obscura JWT</h1>
+    <small>v2.0</small>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-mode="uid">UID + Password</div>
+    <div class="tab" data-mode="token">Access Token</div>
+  </div>
+
+  <div id="uidFields">
+    <div class="field">
+      <label>UID</label>
+      <input type="text" id="uid" placeholder="Enter Free Fire UID" autocomplete="off">
     </div>
-
-    <form id="jwtForm" onsubmit="generateJWT(event)">
-        <div class="form-group">
-            <label><i class="fas fa-user"></i> UID</label>
-            <div class="input-wrap">
-                <span class="icon-left"><i class="fas fa-id-card"></i></span>
-                <input type="text" id="uid" placeholder="Enter Free Fire UID" required>
-            </div>
-        </div>
-        <div class="form-group">
-            <label><i class="fas fa-lock"></i> PASSWORD</label>
-            <div class="input-wrap">
-                <span class="icon-left"><i class="fas fa-key"></i></span>
-                <input type="password" id="password" placeholder="Enter Free Fire Password" required>
-            </div>
-        </div>
-        <button type="submit" class="btn" id="submitBtn">
-            <span class="btn-text"><i class="fas fa-bolt"></i> GENERATE JWT</span>
-        </button>
-    </form>
-
-    <div class="loader" id="loader"></div>
-
-    <div class="result-box" id="resultBox">
-        <div class="result-header">
-            <span class="status-icon" id="statusIcon"><i class="fas fa-check-circle"></i></span>
-            <span class="status-text" id="statusText">Success</span>
-        </div>
-        <div class="info-row">
-            <span class="label"><i class="fas fa-user"></i> UID</span>
-            <span class="value" id="resultUid">-</span>
-        </div>
-        <div class="info-row">
-            <span class="label"><i class="fas fa-id-badge"></i> Account UID</span>
-            <span class="value" id="resultAccountUid">-</span>
-        </div>
-        <div class="info-row">
-            <span class="label"><i class="fas fa-globe"></i> Region</span>
-            <span class="value" id="resultRegion">-</span>
-        </div>
-        <div class="info-row">
-            <span class="label"><i class="fas fa-ticket-alt"></i> JWT Token</span>
-            <span class="value token-value" id="resultToken">-</span>
-        </div>
-        <div class="copy-section">
-            <button class="copy-btn" onclick="copyToken()"><i class="fas fa-copy"></i> COPY TOKEN</button>
-            <button class="copy-btn" onclick="copyAll()"><i class="fas fa-copy"></i> COPY ALL</button>
-        </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" id="password" placeholder="Enter Free Fire Password" autocomplete="off">
     </div>
+  </div>
 
-    <div class="api-badge">
-        <code>API: <span class="highlight">/NIROB?uid={UID}&password={PASS}</span></code>
+  <div id="tokenFields" style="display:none">
+    <div class="field">
+      <label>Access Token</label>
+      <textarea id="access_token" rows="3" placeholder="Paste Garena access token"></textarea>
     </div>
+  </div>
 
-    <div class="footer">
-        <span class="brand">NIROB</span> &bull; PREMIUM JWT API
+  <button class="btn" id="go" onclick="run()">Generate JWT</button>
+
+  <div class="out" id="out">
+    <div class="out-head">
+      <span class="ic" id="ic"></span>
+      <span class="msg" id="msg">—</span>
     </div>
+    <div class="out-body" id="body"></div>
+    <div class="actions">
+      <button onclick="copyToken()" id="btnTok">Copy Token</button>
+      <button onclick="copyAll()" id="btnAll">Copy All</button>
+    </div>
+    <details class="raw">
+      <summary>Raw Response</summary>
+      <pre id="raw"></pre>
+    </details>
+  </div>
+
+  <div class="footer">Dev <b>@ObscuraApis</b></div>
 </div>
 
 <script>
-    async function generateJWT(event) {
-        event.preventDefault();
-        const uid = document.getElementById('uid').value.trim();
-        const password = document.getElementById('password').value.trim();
-        const submitBtn = document.getElementById('submitBtn');
-        const loader = document.getElementById('loader');
-        const resultBox = document.getElementById('resultBox');
-        
-        if (!uid || !password) {
-            showResult(false, 'Please fill in both UID and Password.', {});
-            return;
-        }
-        
-        submitBtn.disabled = true;
-        submitBtn.querySelector('.btn-text').textContent = 'GENERATING...';
-        loader.classList.add('show');
-        resultBox.classList.remove('show');
-        
-        try {
-            const response = await fetch('/NIROB', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid, password })
-            });
-            const data = await response.json();
-            showResult(data.success, data.message, data);
-        } catch (error) {
-            showResult(false, 'Network error. Please try again.', {});
-        } finally {
-            submitBtn.disabled = false;
-            submitBtn.querySelector('.btn-text').textContent = 'GENERATE JWT';
-            loader.classList.remove('show');
-        }
-    }
-    
-    function showResult(success, message, data) {
-        const resultBox = document.getElementById('resultBox');
-        const statusIcon = document.getElementById('statusIcon');
-        const statusText = document.getElementById('statusText');
-        
-        statusIcon.innerHTML = success ? '<i class="fas fa-check-circle"></i>' : '<i class="fas fa-times-circle"></i>';
-        statusText.textContent = message;
-        statusText.className = 'status-text ' + (success ? 'success' : 'error');
-        
-        document.getElementById('resultUid').textContent = data.uid || '-';
-        document.getElementById('resultAccountUid').textContent = data.account_uid || '-';
-        document.getElementById('resultRegion').textContent = data.region || '-';
-        document.getElementById('resultToken').textContent = data.jwt_token || '-';
-        
-        resultBox.classList.add('show');
-        resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-    
-    function copyToken() {
-        const token = document.getElementById('resultToken').textContent;
-        if (token && token !== '-') {
-            navigator.clipboard.writeText(token).then(() => {
-                const btn = event.target.closest('.copy-btn');
-                btn.textContent = 'COPIED!';
-                btn.classList.add('copied');
-                setTimeout(() => {
-                    btn.textContent = 'COPY TOKEN';
-                    btn.classList.remove('copied');
-                }, 2000);
-            });
-        }
-    }
-    
-    function copyAll() {
-        const uid = document.getElementById('resultUid').textContent;
-        const accountUid = document.getElementById('resultAccountUid').textContent;
-        const region = document.getElementById('resultRegion').textContent;
-        const token = document.getElementById('resultToken').textContent;
-        if (token && token !== '-') {
-            const text = `UID: ${uid}\\nAccount UID: ${accountUid}\\nRegion: ${region}\\nJWT Token: ${token}`;
-            navigator.clipboard.writeText(text).then(() => {
-                const btn = event.target.closest('.copy-btn');
-                btn.textContent = 'COPIED!';
-                btn.classList.add('copied');
-                setTimeout(() => {
-                    btn.textContent = 'COPY ALL';
-                    btn.classList.remove('copied');
-                }, 2000);
-            });
-        }
-    }
+let mode = "uid";
+let last = null;
+
+document.querySelectorAll(".tab").forEach(t=>{
+  t.onclick = () => {
+    document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
+    t.classList.add("active");
+    mode = t.dataset.mode;
+    document.getElementById("uidFields").style.display = mode==="uid" ? "block":"none";
+    document.getElementById("tokenFields").style.display = mode==="token" ? "block":"none";
+  };
+});
+
+async function run(){
+  const go = document.getElementById("go");
+  const out = document.getElementById("out");
+  const ic = document.getElementById("ic");
+  const msg = document.getElementById("msg");
+  const body = document.getElementById("body");
+  const raw = document.getElementById("raw");
+
+  let payload = {};
+  if(mode==="uid"){
+    const uid = document.getElementById("uid").value.trim();
+    const pw = document.getElementById("password").value.trim();
+    if(!uid || !pw){ show(false,"UID and Password are required.",{}); return; }
+    payload = {uid, password: pw};
+  } else {
+    const tok = document.getElementById("access_token").value.trim();
+    if(!tok){ show(false,"Access token is required.",{}); return; }
+    payload = {access_token: tok};
+  }
+
+  go.disabled = true;
+  go.innerHTML = '<span class="sp"></span>Generating';
+  out.classList.remove("show");
+
+  try{
+    const r = await fetch("/NIROB",{
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+    const d = await r.json();
+    last = d;
+    show(d.success, d.message || (d.success?"Success":"Failed"), d);
+  } catch(e){
+    show(false, "Network error", {});
+  } finally {
+    go.disabled = false;
+    go.textContent = "Generate JWT";
+  }
+}
+
+function show(ok, msgText, d){
+  const out = document.getElementById("out");
+  const ic = document.getElementById("ic");
+  const msg = document.getElementById("msg");
+  const body = document.getElementById("body");
+  const raw = document.getElementById("raw");
+
+  ic.className = "ic" + (ok ? "" : " err");
+  msg.textContent = msgText;
+
+  if(!ok){
+    body.innerHTML = "";
+    raw.textContent = JSON.stringify(d, null, 2);
+    out.classList.add("show");
+    return;
+  }
+
+  const jd = d.jwt_decoded || {};
+  const pl = jd.payload || {};
+  const rows = [
+    ["Account UID", d.account_uid, "hl"],
+    ["UID", d.Uid],
+    ["Nickname", pl.nickname],
+    ["Region", d.region],
+    ["Lock Region", pl.lock_region],
+    ["Country", pl.country_code],
+    ["Platform", d.platform_type_used],
+    ["Emulator", String(pl.is_emulator)],
+    ["Release", pl.release_version],
+    ["Expires", pl.exp],
+    ["Client URL", d.url, "tok"],
+    ["Token", d.token, "tok"],
+  ];
+
+  body.innerHTML = rows.map(([k,v,cls])=>{
+    if(v===undefined||v===null||v==="") v = "—";
+    return `<div class="row"><span class="k">${k}</span><span class="v ${cls||''}">${v}</span></div>`;
+  }).join("");
+
+  raw.textContent = JSON.stringify(d, null, 2);
+  out.classList.add("show");
+}
+
+function copyToken(){
+  if(!last || !last.token) return;
+  navigator.clipboard.writeText(last.token).then(()=>flash("btnTok","Copied"));
+}
+function copyAll(){
+  if(!last) return;
+  navigator.clipboard.writeText(JSON.stringify(last,null,2)).then(()=>flash("btnAll","Copied"));
+}
+function flash(id, txt){
+  const b = document.getElementById(id);
+  const o = b.textContent;
+  b.textContent = txt; b.classList.add("done");
+  setTimeout(()=>{b.textContent = o; b.classList.remove("done");}, 1500);
+}
 </script>
 </body>
 </html>'''
 
 
-# ==================== FLASK ROUTES ====================
-
-@app.route('/')
+@app.route("/")
 def index():
     return render_template_string(HTML_PAGE)
 
 
-@app.route('/NIROB', methods=['GET', 'POST'])
+@app.route("/NIROB", methods=["GET", "POST"])
 def nirob():
-    if request.method == 'GET':
-        uid = request.args.get('uid', '').strip()
-        password = request.args.get('password', '').strip()
+    if request.method == "GET":
+        uid = request.args.get("uid", "").strip()
+        password = request.args.get("password", "").strip()
+        access_token = request.args.get("access_token", "").strip()
     else:
         data = request.get_json(silent=True) or {}
-        uid = str(data.get('uid', '')).strip()
-        password = str(data.get('password', '')).strip()
+        uid = str(data.get("uid", "")).strip()
+        password = str(data.get("password", "")).strip()
+        access_token = str(data.get("access_token", "")).strip()
 
-    if not uid or not password:
-        response = {'success': False, 'message': 'UID and Password are required.'}
+    if access_token:
+        response = gen_from_access_token(access_token)
+    elif uid and password:
+        response = gen_from_uid_pass(uid, password)
     else:
-        response = generate_jwt(uid, password)
+        response = {"success": False, "message": "Provide uid+password or access_token."}
 
     resp = jsonify(response)
-    resp.headers['Access-Control-Allow-Origin'] = '*'
+    resp.headers["Access-Control-Allow-Origin"] = "*"
     return resp
 
 
-@app.route('/api', methods=['GET', 'POST'])
+@app.route("/api", methods=["GET", "POST"])
 def api():
-    if request.method == 'GET':
-        uid = request.args.get('uid', '').strip()
-        password = request.args.get('password', '').strip()
-    else:
-        data = request.get_json(silent=True) or {}
-        uid = str(data.get('uid', '')).strip()
-        password = str(data.get('password', '')).strip()
-
-    if not uid or not password:
-        response = {'success': False, 'message': 'UID and Password are required.'}
-    else:
-        response = generate_jwt(uid, password)
-
-    resp = jsonify(response)
-    resp.headers['Access-Control-Allow-Origin'] = '*'
-    return resp
+    return nirob()
 
 
-# ==================== LOCAL RUN ====================
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=PORT, debug=False, threaded=True)
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=PORT, debug=False, threaded=True)
